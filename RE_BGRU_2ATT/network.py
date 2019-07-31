@@ -5,16 +5,18 @@ import numpy as np
 class Settings(object):
     def __init__(self):
         self.vocab_size = 16691
-        self.num_steps = 70
+        # self.num_steps = 70 # = fixlen?
+        self.num_steps = 200 # 句子的最大长度
         self.num_epochs = 10
-        self.num_classes = 12
+        self.num_classes = 6
         self.gru_size = 230
         self.keep_prob = 0.5
         self.num_layers = 1
         self.pos_size = 5
         self.pos_num = 123
         # the number of entity pairs of each batch during training or testing
-        self.big_num = 50
+        # (epoch*data_num)/big_num(also batch size) = steps
+        self.batch_size = 50 # batch_size
 
 
 class GRU:
@@ -24,13 +26,13 @@ class GRU:
         self.vocab_size = vocab_size = settings.vocab_size
         self.num_classes = num_classes = settings.num_classes
         self.gru_size = gru_size = settings.gru_size
-        self.big_num = big_num = settings.big_num
+        self.batch_size = batch_size = settings.batch_size
 
         self.input_word = tf.placeholder(dtype=tf.int32, shape=[None, num_steps], name='input_word')
         self.input_pos1 = tf.placeholder(dtype=tf.int32, shape=[None, num_steps], name='input_pos1')
         self.input_pos2 = tf.placeholder(dtype=tf.int32, shape=[None, num_steps], name='input_pos2')
         self.input_y = tf.placeholder(dtype=tf.float32, shape=[None, num_classes], name='input_y')
-        self.total_shape = tf.placeholder(dtype=tf.int32, shape=[big_num + 1], name='total_shape')
+        self.total_shape = tf.placeholder(dtype=tf.int32, shape=[batch_size + 1], name='total_shape')
         total_num = self.total_shape[-1]
 
         word_embedding = tf.get_variable(initializer=word_embeddings, name='word_embedding')
@@ -110,7 +112,7 @@ class GRU:
                        [total_num, num_steps])), [total_num, 1, num_steps]), output_h), [total_num, gru_size])
 
         # sentence-level attention layer
-        for i in range(big_num):
+        for i in range(batch_size):
 
             sen_repre.append(tf.tanh(attention_r[self.total_shape[i]:self.total_shape[i + 1]]))
             batch_size = self.total_shape[i + 1] - self.total_shape[i]

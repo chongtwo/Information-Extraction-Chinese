@@ -4,6 +4,7 @@ import codecs
 import pickle
 import itertools
 from collections import OrderedDict
+import json
 
 import tensorflow as tf
 import numpy as np
@@ -22,17 +23,17 @@ flags.DEFINE_boolean("train",       False,      "Whether train the model")
 flags.DEFINE_integer("seg_dim",     20,         "Embedding size for segmentation, 0 if not used")
 flags.DEFINE_integer("char_dim",    100,        "Embedding size for characters")
 flags.DEFINE_integer("lstm_dim",    100,        "Num of hidden units in LSTM, or num of filters in IDCNN")
-flags.DEFINE_string("tag_schema",   "iobes",    "tagging schema iobes or iob")
+flags.DEFINE_string("tag_schema",   "iob",    "tagging schema iobes or iob")
 
 # configurations for training
 flags.DEFINE_float("clip",          5,          "Gradient clip")
 flags.DEFINE_float("dropout",       0.5,        "Dropout rate")
-flags.DEFINE_float("batch_size",    20,         "batch size")
+flags.DEFINE_integer("batch_size",    20,         "batch size")
 flags.DEFINE_float("lr",            0.001,      "Initial learning rate")
 flags.DEFINE_string("optimizer",    "adam",     "Optimizer for training")
-flags.DEFINE_boolean("pre_emb",     True,       "Wither use pre-trained embedding")
-flags.DEFINE_boolean("zeros",       False,      "Wither replace digits with zero")
-flags.DEFINE_boolean("lower",       True,       "Wither lower case")
+flags.DEFINE_boolean("pre_emb",     True,       "Whether use pre-trained embedding")
+flags.DEFINE_boolean("zeros",       False,      "Whether replace digits with zero")
+flags.DEFINE_boolean("lower",       True,       "Whether lower case")
 
 flags.DEFINE_integer("max_epoch",   100,        "maximum training epochs")
 flags.DEFINE_integer("steps_check", 100,        "steps per checkpoint")
@@ -45,18 +46,22 @@ flags.DEFINE_string("config_file",  "config_file",  "File for config")
 flags.DEFINE_string("script",       "conlleval",    "evaluation script")
 flags.DEFINE_string("result_path",  "result",       "Path for results")
 flags.DEFINE_string("emb_file",     os.path.join("data", "vec.txt"),  "Path for pre_trained embedding")
-flags.DEFINE_string("train_file",   os.path.join("data", "example.train"),  "Path for train data")
-flags.DEFINE_string("dev_file",     os.path.join("data", "example.dev"),    "Path for dev data")
-flags.DEFINE_string("test_file",    os.path.join("data", "example.test"),   "Path for test data")
+flags.DEFINE_string("train_file",   os.path.join("data", "train.txt"),  "Path for train data")
+flags.DEFINE_string("dev_file",     os.path.join("data", "dev.txt"),    "Path for dev data")
+flags.DEFINE_string("test_file",    os.path.join("data", "test.txt"),   "Path for test data")
+flags.DEFINE_string("predict_file", "F:\肺癌分期项目程序\标注数据\CT_SCHEMA2_ANNED_2\CT_FIND_0003.txt", "Path for predict data")
+# flags.DEFINE_string("predict_file", None, "Path for predict data")
 
-flags.DEFINE_string("model_type", "idcnn", "Model type, can be idcnn or bilstm")
-#flags.DEFINE_string("model_type", "bilstm", "Model type, can be idcnn or bilstm")
+
+# flags.DEFINE_string("model_type", "idcnn", "Model type, can be idcnn or bilstm")
+flags.DEFINE_string("model_type", "bilstm", "Model type, can be idcnn or bilstm")
 
 FLAGS = tf.app.flags.FLAGS
 assert FLAGS.clip < 5.1, "gradient clip should't be too much"
 assert 0 <= FLAGS.dropout < 1, "dropout rate between 0 and 1"
 assert FLAGS.lr > 0, "learning rate must larger than zero"
 assert FLAGS.optimizer in ["adam", "sgd", "adagrad"]
+
 
 
 # config for the model
@@ -105,6 +110,7 @@ def evaluate(sess, model, name, data, id_to_tag, logger):
 
 
 def train():
+    tf.set_random_seed(2019)
     # load data sets
     train_sentences = load_sentences(FLAGS.train_file, FLAGS.lower, FLAGS.zeros)
     dev_sentences = load_sentences(FLAGS.dev_file, FLAGS.lower, FLAGS.zeros)
@@ -113,6 +119,8 @@ def train():
     # Use selected tagging scheme (IOB / IOBES)
     update_tag_scheme(train_sentences, FLAGS.tag_schema)
     update_tag_scheme(test_sentences, FLAGS.tag_schema)
+    update_tag_scheme(dev_sentences, FLAGS.tag_schema)
+
 
     # create maps if not exist
     if not os.path.isfile(FLAGS.map_file):
@@ -137,7 +145,11 @@ def train():
         with open(FLAGS.map_file, "rb") as f:
             char_to_id, id_to_char, tag_to_id, id_to_tag = pickle.load(f)
 
-    # prepare data, get a collection of list containing index
+    # prepare data, get a collection of list containing index 最外围是一句话为单位，每一句话包含字列表、字id列表、分割信息列表、tagid列表
+        # - char
+        # - char indexes
+        # - seg feature indexes 用到了结巴分词的信息
+        # - tag indexes
     train_data = prepare_dataset(
         train_sentences, char_to_id, tag_to_id, FLAGS.lower
     )
@@ -174,8 +186,11 @@ def train():
         model = create_model(sess, Model, FLAGS.ckpt_path, load_word2vec, config, id_to_char, logger)
         logger.info("start training")
         loss = []
+        # 100->epoch
+        # 循环100个epoch，每个epoch 验证一次，测试一次
+        # 模型的保存取决于验证结果是否好于上一次
         for i in range(100):
-            for batch in train_manager.iter_batch(shuffle=True):
+            for batch in train_manager.iter_batch(shuffle=False):
                 step, batch_loss = model.run_step(sess, True, batch)
                 loss.append(batch_loss)
                 if step % FLAGS.steps_check == 0:
@@ -191,37 +206,40 @@ def train():
             evaluate(sess, model, "test", test_manager, id_to_tag, logger)
 
 
-def evaluate_line():
+def evaluate_line(source_file):
     config = load_config(FLAGS.config_file)
     logger = get_logger(FLAGS.log_file)
     # limit GPU memory
     tf_config = tf.ConfigProto()
     tf_config.gpu_options.allow_growth = True
-    with open(FLAGS.map_file, "rb") as f:
+    with open(FLAGS.map_file, 'rb') as f:
         char_to_id, id_to_char, tag_to_id, id_to_tag = pickle.load(f)
     with tf.Session(config=tf_config) as sess:
         model = create_model(sess, Model, FLAGS.ckpt_path, load_word2vec, config, id_to_char, logger, False)
-        while True:
-            # try:
-            #     line = input("请输入测试句子:")
-            #     result = model.evaluate_line(sess, input_from_line(line, char_to_id), id_to_tag)
-            #     print(result)
-            # except Exception as e:
-            #     logger.info(e)
-
+        if(source_file == None):
+            while True:
                 line = input("请输入测试句子:")
                 result = model.evaluate_line(sess, input_from_line(line, char_to_id), id_to_tag)
                 print(result)
-
+        else: # 从source_file读入要预测的文本
+            with codecs.open(source_file, "rb", encoding="utf8") as sf:
+                out_file = os.path.join(FLAGS.result_path, source_file.split("\\")[-1].replace(".txt", ".json"))
+                result_arr=[]
+                with codecs.open(out_file, "w", 'utf8') as outf:
+                    lines = sf.readlines()
+                    for line in lines:
+                        result = model.evaluate_line(sess, input_from_line(line, char_to_id), id_to_tag)
+                        print(result)
+                        result_arr.append(result);
+                    json.dump(result_arr, outf, ensure_ascii=False)
 
 def main(_):
-
     if FLAGS.train:
         if FLAGS.clean:
             clean(FLAGS)
         train()
     else:
-        evaluate_line()
+        evaluate_line(FLAGS.predict_file)
 
 
 if __name__ == "__main__":

@@ -1,16 +1,10 @@
 import numpy as np
 import os
+import network
+from utils import pos_embed
 
 
-# embedding the position
-def pos_embed(x):
-    if x < -60:
-        return 0
-    if -60 <= x <= 60:
-        return x + 61
-    if x > 60:
-        return 122
-
+# 训练集不能有空行，不然会被截断！！！！！！！！！！！！！！！！！
 
 # find the index of x in y, if x not in y, return -1
 def find_index(x, y):
@@ -60,12 +54,13 @@ def init():
         relation2id[content[0]] = int(content[1])
     f.close()
 
-    # length of sentence is 70
-    fixlen = 70
+    # length of sentence is 200
+    max_sen_len = network.Settings();
     # max length of position embedding is 60 (-60~+60)
-    maxlen = 60
+    # maxlen = 60
 
-    train_sen = {}  # {entity pair:[[[label1-sentence 1],[label1-sentence 2]...],[[label2-sentence 1],[label2-sentence 2]...]}
+
+    train_sen = {}  # {entity pair:[[[label1-sentence 1],[label1-sentence 2]...],[[label2-sentence 1],[label2-sentence 2]...],...]}
     train_ans = {}  # {entity pair:[label1,label2,...]} the label is one-hot vector
 
     print('reading train data...')
@@ -73,7 +68,7 @@ def init():
 
     while True:
         content = f.readline()
-        if content == '':
+        if content == '' or content == '\n':
             break
 
         content = content.strip().split()
@@ -87,7 +82,6 @@ def init():
             relation = relation2id[content[2]]
         # put the same entity pair sentences into a dict
         tup = (en1, en2)
-        label_tag = 0
         if tup not in train_sen:
             train_sen[tup] = []
             train_sen[tup].append([])
@@ -99,7 +93,7 @@ def init():
             train_ans[tup].append(label)
         else:
             y_id = relation
-            label_tag = 0
+
             label = [0 for i in range(len(relation2id))]
             label[y_id] = 1
 
@@ -113,34 +107,31 @@ def init():
 
         sentence = content[3]
 
-        en1pos = 0
-        en2pos = 0
-        
-        #For Chinese
+        # 编码entity的位置
+        # For Chinese
         en1pos = sentence.find(en1)
         if en1pos == -1:
             en1pos = 0
         en2pos = sentence.find(en2)
         if en2pos == -1:
-            en2post = 0
+            en2pos = 0
         
         output = []
 
-        #Embeding the position
-        for i in range(fixlen):
-            word = word2id['BLANK']
+        # Embedding the position
+        for i in range(max_sen_len):
+            word_id = word2id['BLANK']
             rel_e1 = pos_embed(i - en1pos)
             rel_e2 = pos_embed(i - en2pos)
-            output.append([word, rel_e1, rel_e2])
+            output.append([word_id, rel_e1, rel_e2])
 
-        for i in range(min(fixlen, len(sentence))):
-            word = 0
+        for i in range(min(max_sen_len, len(sentence))):
+            word_id = 0
             if sentence[i] not in word2id:
-                word = word2id['UNK']
+                word_id = word2id['UNK']
             else:
-                word = word2id[sentence[i]]
-
-            output[i][0] = word
+                word_id = word2id[sentence[i]]
+            output[i][0] = word_id # 一句话的list，list中的每个元素是[字id，相对实体1首字符的位置，相对实体2首字符的位置]
 
         train_sen[tup][label_tag].append(output)
 
@@ -149,11 +140,11 @@ def init():
     test_sen = {}  # {entity pair:[[sentence 1],[sentence 2]...]}
     test_ans = {}  # {entity pair:[labels,...]} the labels is N-hot vector (N is the number of multi-label)
 
-    f = open('./origin_data/test.txt', 'r', encoding='utf-8')
+    f = open('./origin_data/dev.txt', 'r', encoding='utf-8')
 
     while True:
         content = f.readline()
-        if content == '':
+        if content == '' or content == '\n':
             break
 
         content = content.strip().split()
@@ -192,20 +183,20 @@ def init():
             
         output = []
 
-        for i in range(fixlen):
-            word = word2id['BLANK']
+        for i in range(max_sen_len):
+            word_id = word2id['BLANK']
             rel_e1 = pos_embed(i - en1pos)
             rel_e2 = pos_embed(i - en2pos)
-            output.append([word, rel_e1, rel_e2])
+            output.append([word_id, rel_e1, rel_e2])
 
-        for i in range(min(fixlen, len(sentence))):
-            word = 0
+        for i in range(min(max_sen_len, len(sentence))):
+            word_id = 0
             if sentence[i] not in word2id:
-                word = word2id['UNK']
+                word_id = word2id['UNK']
             else:
-                word = word2id[sentence[i]]
+                word_id = word2id[sentence[i]]
 
-            output[i][0] = word
+            output[i][0] = word_id
         test_sen[tup].append(output)
 
     train_x = []
@@ -214,21 +205,21 @@ def init():
     test_y = []
 
     print('organizing train data')
-    f = open('./data/train_q&a.txt', 'w', encoding='utf-8')
+    f = open('./origin_data/train.txt', 'w', encoding='utf-8')
     temp = 0
-    for i in train_sen:
+    for i in train_sen: # i是tuple
         if len(train_ans[i]) != len(train_sen[i]):
             print('ERROR')
-        lenth = len(train_ans[i])
-        for j in range(lenth):
+        re_num = len(train_ans[i]) # 每一对entity pair之间可能出现的关系数目
+        for j in range(re_num):
             train_x.append(train_sen[i][j])
             train_y.append(train_ans[i][j])
-            f.write(str(temp) + '\t' + i[0] + '\t' + i[1] + '\t' + str(np.argmax(train_ans[i][j])) + '\n')
+            # f.write(str(temp) + '\t' + i[0] + '\t' + i[1] + '\t' + str(np.argmax(train_ans[i][j])) + '\n')
             temp += 1
     f.close()
 
-    print('organizing test data')
-    f = open('./data/test_q&a.txt', 'w', encoding='utf-8')
+    print('organizing dev data')
+    f = open('./origin_data/dev.txt', 'w', encoding='utf-8')
     temp = 0
     for i in test_sen:
         test_x.append(test_sen[i])
@@ -237,11 +228,11 @@ def init():
         for j in range(len(test_ans[i])):
             if test_ans[i][j] != 0:
                 tempstr = tempstr + str(j) + '\t'
-        f.write(str(temp) + '\t' + i[0] + '\t' + i[1] + '\t' + tempstr + '\n')
+        # f.write(str(temp) + '\t' + i[0] + '\t' + i[1] + '\t' + tempstr + '\n')
         temp += 1
     f.close()
 
-    train_x = np.array(train_x)
+    train_x = np.array(train_x) # train_x的列数是tuple * 该tuple下label的数目
     train_y = np.array(train_y)
     test_x = np.array(test_x)
     test_y = np.array(test_y)
@@ -249,8 +240,8 @@ def init():
     np.save('./data/vec.npy', vec)
     np.save('./data/train_x.npy', train_x)
     np.save('./data/train_y.npy', train_y)
-    np.save('./data/testall_x.npy', test_x)
-    np.save('./data/testall_y.npy', test_y)
+    np.save('./data/dev_x.npy', test_x)
+    np.save('./data/dev_y.npy', test_y)
 
    
 
@@ -283,15 +274,15 @@ def seperate():
         train_pos1.append(pos1)
         train_pos2.append(pos2)
 
-    train_word = np.array(train_word)
+    train_word = np.array(train_word) # 各tuple下，该tuple的各label下的句子的字的id
     train_pos1 = np.array(train_pos1)
     train_pos2 = np.array(train_pos2)
     np.save('./data/train_word.npy', train_word)
     np.save('./data/train_pos1.npy', train_pos1)
     np.save('./data/train_pos2.npy', train_pos2)
 
-    print('seperating test all data')
-    x_test = np.load('./data/testall_x.npy')
+    print('seperating dev data')
+    x_test = np.load('./data/dev_x.npy')
     test_word = []
     test_pos1 = []
     test_pos2 = []
@@ -319,9 +310,9 @@ def seperate():
     test_pos1 = np.array(test_pos1)
     test_pos2 = np.array(test_pos2)
 
-    np.save('./data/testall_word.npy', test_word)
-    np.save('./data/testall_pos1.npy', test_pos1)
-    np.save('./data/testall_pos2.npy', test_pos2)
+    np.save('./data/dev_word.npy', test_word)
+    np.save('./data/dev_pos1.npy', test_pos1)
+    np.save('./data/dev_pos2.npy', test_pos2)
 
 
 
@@ -348,8 +339,11 @@ def get_metadata():
     f.close()
     fwrite.close()
 
+def initialize():
+    init()
+    seperate()
+    getans()
+    get_metadata()
 
-init()
-seperate()
-getans()
-get_metadata()
+if __name__ == "__main__":
+   initialize()

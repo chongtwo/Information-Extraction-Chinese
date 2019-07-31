@@ -11,7 +11,7 @@ jieba.initialize()
 
 def create_dico(item_list):
     """
-    Create a dictionary of items from a list of list of items.
+    Create a dictionary of items to their frequency from a list of list of items.
     """
     assert type(item_list) is list
     dico = {}
@@ -135,7 +135,7 @@ def get_seg_features(string):
         if len(word) == 1:
             seg_feature.append(0)
         else:
-            tmp = [2] * len(word)
+            tmp = [2] * len(word) # 复制len(word)个2
             tmp[0] = 1
             tmp[-1] = 3
             seg_feature.extend(tmp)

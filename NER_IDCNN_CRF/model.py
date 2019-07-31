@@ -20,6 +20,7 @@ class Model(object):
         self.char_dim = config["char_dim"]
         self.lstm_dim = config["lstm_dim"]
         self.seg_dim = config["seg_dim"]
+        self.tag_schema=config["tag_schema"]
 
         self.num_tags = config["num_tags"]
         self.num_chars = config["num_chars"]
@@ -29,6 +30,7 @@ class Model(object):
         self.best_dev_f1 = tf.Variable(0.0, trainable=False)
         self.best_test_f1 = tf.Variable(0.0, trainable=False)
         self.initializer = initializers.xavier_initializer()
+        # TODO
         
         
 
@@ -36,7 +38,7 @@ class Model(object):
 
         self.char_inputs = tf.placeholder(dtype=tf.int32,
                                           shape=[None, None],
-                                          name="ChatInputs")
+                                          name="CharInputs")
         self.seg_inputs = tf.placeholder(dtype=tf.int32,
                                          shape=[None, None],
                                          name="SegInputs")
@@ -396,4 +398,4 @@ class Model(object):
         lengths, scores = self.run_step(sess, False, inputs)
         batch_paths = self.decode(scores, lengths, trans)
         tags = [id_to_tag[idx] for idx in batch_paths[0]]
-        return result_to_json(inputs[0][0], tags)
+        return result_to_json(inputs[0][0], tags, self.tag_schema)

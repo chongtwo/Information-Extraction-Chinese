@@ -104,3 +104,13 @@ ENV/
 #Models
 */model/
 */data/
+*/origin_data/
+*/result/
+
+# idea
+*.idea
+
+*/result/
+*/train_loss/
+
+*/ckpt/

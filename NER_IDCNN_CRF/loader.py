@@ -36,6 +36,11 @@ def load_sentences(path, lower, zeros):
         if 'DOCSTART' not in sentence[0][0]:
             sentences.append(sentence)
     return sentences
+# sentences是一个三维矩阵：w=word,t=tag
+# [
+# [[w1,t1],[w2,t2],...] ,
+# [[w1,t1],[w2,t2],[w3,t3],...]
+# ]
 
 
 def update_tag_scheme(sentences, tag_scheme):
@@ -67,10 +72,10 @@ def char_mapping(sentences, lower):
     Create a dictionary and a mapping of words, sorted by frequency.
     """
     chars = [[x[0].lower() if lower else x[0] for x in s] for s in sentences]
-    dico = create_dico(chars)
+    dico = create_dico(chars)  # create_dico返回一个词—频次dict
     dico["<PAD>"] = 10000001
     dico['<UNK>'] = 10000000
-    char_to_id, id_to_char = create_mapping(dico)
+    char_to_id, id_to_char = create_mapping(dico)  # 双向dict
     print("Found %i unique words (%i in total)" % (
         len(dico), sum(len(x) for x in chars)
     ))
@@ -91,8 +96,9 @@ def tag_mapping(sentences):
 def prepare_dataset(sentences, char_to_id, tag_to_id, lower=False, train=True):
     """
     Prepare the dataset. Return a list of lists of dictionaries containing:
-        - word indexes
-        - word char indexes
+        - char
+        - char indexes
+        - seg feature indexes
         - tag indexes
     """
 
@@ -122,6 +128,7 @@ def augment_with_pretrained(dictionary, ext_emb_path, chars):
     to the dictionary, otherwise, we only add the words that are given by
     `words` (typically the words in the development and test sets.)
     """
+    # 增强dictionary。dictionary是由训练集统计得到的，将测试集中出现的、pre_emb有的、训练集中没有的也加到dictionary中
     print('Loading pretrained embeddings from %s...' % ext_emb_path)
     assert os.path.isfile(ext_emb_path)
 

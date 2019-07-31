@@ -6,32 +6,24 @@ import time
 import datetime
 import os
 import network
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import average_precision_score, classification_report
+from utils import get_logger, load_relation, props_to_onehot, pos_embed
 
+tf.app.flags.DEFINE_string("log_file",     "train.log",    "File for log")
 FLAGS = tf.app.flags.FLAGS
 
 
-# embedding the position
-def pos_embed(x):
-    if x < -60:
-        return 0
-    if -60 <= x <= 60:
-        return x + 61
-    if x > 60:
-        return 122
-
-
-def main_for_evaluation():
+def evaluation():
     pathname = "./model/ATT_GRU_model-"
-
     wordembedding = np.load('./data/vec.npy')
-
     test_settings = network.Settings()
     test_settings.vocab_size = 16693
-    test_settings.num_classes = 12
-    test_settings.big_num = 5561
+    # test_settings.num_classes = 6
+    test_settings.batch_size = 1136
+    # test_settings.big_num = 50
+    log_path = os.path.join("log", FLAGS.log_file)
+    logger = get_logger(log_path)
 
-    big_num_test = test_settings.big_num
 
     with tf.Graph().as_default():
 
@@ -82,7 +74,7 @@ def main_for_evaluation():
 
         
             #testlist = range(1000, 1800, 100)
-            testlist = [9000]
+            testlist = [1200]
             
             for model_iter in testlist:
                 # for compatibility purposes only, name key changes from tf 0.x to 1.x, compat_layer
@@ -90,7 +82,8 @@ def main_for_evaluation():
 
 
                 time_str = datetime.datetime.now().isoformat()
-                print(time_str)
+                logger.info(time_str)
+                # print(time_str)
                 print('Evaluating all test data and save data for PR curve')
 
                 test_y = np.load('./data/testall_y.npy')
@@ -98,15 +91,17 @@ def main_for_evaluation():
                 test_pos1 = np.load('./data/testall_pos1.npy')
                 test_pos2 = np.load('./data/testall_pos2.npy')
                 allprob = []
+                probs = []
                 acc = []
-                for i in range(int(len(test_word) / float(test_settings.big_num))):
-                    prob, accuracy = test_step(test_word[i * test_settings.big_num:(i + 1) * test_settings.big_num],
-                                               test_pos1[i * test_settings.big_num:(i + 1) * test_settings.big_num],
-                                               test_pos2[i * test_settings.big_num:(i + 1) * test_settings.big_num],
-                                               test_y[i * test_settings.big_num:(i + 1) * test_settings.big_num])
-                    acc.append(np.mean(np.reshape(np.array(accuracy), (test_settings.big_num))))
-                    prob = np.reshape(np.array(prob), (test_settings.big_num, test_settings.num_classes))
+                for i in range(int(len(test_word) / float(test_settings.batch_size))):# 不整除时会丢弃末尾部分
+                    prob, accuracy = test_step(test_word[i * test_settings.batch_size:(i + 1) * test_settings.batch_size],
+                                               test_pos1[i * test_settings.batch_size:(i + 1) * test_settings.batch_size],
+                                               test_pos2[i * test_settings.batch_size:(i + 1) * test_settings.batch_size],
+                                               test_y[i * test_settings.batch_size:(i + 1) * test_settings.batch_size])
+                    acc.append(np.mean(np.reshape(np.array(accuracy), (test_settings.batch_size))))
+                    prob = np.reshape(np.array(prob), (test_settings.batch_size, test_settings.num_classes))
                     for single_prob in prob:
+                        probs.append(single_prob)
                         allprob.append(single_prob[1:])
                 allprob = np.reshape(np.array(allprob), (-1))
                 order = np.argsort(-allprob)
@@ -115,24 +110,31 @@ def main_for_evaluation():
                 current_step = model_iter
 
                 
-                np.save('./out/allprob_iter_' + str(current_step) + '.npy', allprob)
+                np.save('./result/allprob_iter_' + str(current_step) + '.npy', allprob)
                 allans = np.load('./data/allans.npy')
 
                 # caculate the pr curve area
-                average_precision = average_precision_score(allans, allprob)
-                print('PR curve area:' + str(average_precision))
+                # allans和allprob的size = (num_class-1)*sample_num
+                # average_precision = average_precision_score(allans, allprob)
+
+                # softmax 结果转 onehot
+                pred_y = props_to_onehot(probs)
+                relation2id, _ = load_relation()
+                target_names = relation2id.keys();
+                repo = classification_report(test_y[:len(pred_y)], pred_y, target_names=target_names)
+                logger.info(repo)
+                # logger.info('PR curve area:' + str(average_precision))
 
 
-def main(_):
-
+def main_for_predict(_):
     #If you retrain the model, please remember to change the path to your own model below:
-    pathname = "./model/ATT_GRU_model-9000"
+    pathname = "./model/ATT_GRU_model-200"
     
     wordembedding = np.load('./data/vec.npy')
     test_settings = network.Settings()
     test_settings.vocab_size = 16693
-    test_settings.num_classes = 12
-    test_settings.big_num = 1
+    # test_settings.num_classes = 8
+    # test_settings.big_num = 1
     
     with tf.Graph().as_default():
         sess = tf.Session()
@@ -201,17 +203,18 @@ def main(_):
             word2id['BLANK'] = len(word2id)
             
             print('reading relation to id')
-            relation2id = {}
-            id2relation = {}
-            f = open('./origin_data/relation2id.txt', 'r', encoding='utf-8')
-            while True:
-                content = f.readline()
-                if content == '':
-                    break
-                content = content.strip().split()
-                relation2id[content[0]] = int(content[1])
-                id2relation[int(content[1])] = content[0]
-            f.close()
+            # relation2id = {}
+            # id2relation = {}
+            # f = open('./origin_data/relation2id.txt', 'r', encoding='utf-8')
+            # while True:
+            #     content = f.readline()
+            #     if content == '':
+            #         break
+            #     content = content.strip().split()
+            #     relation2id[content[0]] = int(content[1])
+            #     id2relation[int(content[1])] = content[0]
+            # f.close()
+            relation2id, id2relation = load_relation()
             
             
             while True:
@@ -277,9 +280,6 @@ def main(_):
                     
                     test_x = np.array(test_x)
                     test_y = np.array(test_y)
-                    
-                    
-                    
                     
                     
                     test_word = []

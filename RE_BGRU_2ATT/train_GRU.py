@@ -5,13 +5,21 @@ import datetime
 import os
 import network
 from tensorflow.contrib.tensorboard.plugins import projector
+from utils import get_logger
+from initial import initialize
+from test_GRU import evaluation
 
-FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string('summary_dir', '.', 'path to store summary')
+tf.app.flags.DEFINE_string("log_file",     "train.log",    "File for log")
+tf.app.flags.DEFINE_boolean("initial", False, "initial dataset")
+FLAGS = tf.app.flags.FLAGS
 
 
 def main(_):
+    if FLAGS.initial:
+        initialize()
+
     # the path to save models
     save_path = './model/'
 
@@ -28,28 +36,27 @@ def main(_):
     settings.vocab_size = len(wordembedding)
     settings.num_classes = len(train_y[0])
 
-    big_num = settings.big_num
+    # big_num = settings.big_num
+
+    log_path = os.path.join("log", FLAGS.log_file)
+    logger = get_logger(log_path)
+
 
     with tf.Graph().as_default():
-
         sess = tf.Session()
         with sess.as_default():
-
             initializer = tf.contrib.layers.xavier_initializer()
             with tf.variable_scope("model", reuse=None, initializer=initializer):
                 m = network.GRU(is_training=True, word_embeddings=wordembedding, settings=settings)
             global_step = tf.Variable(0, name="global_step", trainable=False)
             optimizer = tf.train.AdamOptimizer(0.0005)
-
             train_op = optimizer.minimize(m.final_loss, global_step=global_step)
+            # 参数初始化
             sess.run(tf.global_variables_initializer())
             saver = tf.train.Saver(max_to_keep=None)
-           
             merged_summary = tf.summary.merge_all()
             summary_writer = tf.summary.FileWriter(FLAGS.summary_dir + '/train_loss', sess.graph)
-
             def train_step(word_batch, pos1_batch, pos2_batch, y_batch, big_num):
-
                 feed_dict = {}
                 total_shape = []
                 total_num = 0
@@ -85,32 +92,31 @@ def main(_):
                 acc = np.mean(accuracy)
                 summary_writer.add_summary(summary, step)
 
-                if step % 50 == 0:
+                if step % 100 == 0:
                     tempstr = "{}: step {}, softmax_loss {:g}, acc {:g}".format(time_str, step, loss, acc)
-                    print(tempstr)
+                    logger.info(tempstr)
+                    # print(tempstr)
 
             for one_epoch in range(settings.num_epochs):
-
                 temp_order = list(range(len(train_word)))
                 np.random.shuffle(temp_order)
-                for i in range(int(len(temp_order) / float(settings.big_num))):
-
+                # 每个batch训练一次
+                for i in range(int(len(temp_order) / float(settings.batch_size))):
                     temp_word = []
                     temp_pos1 = []
                     temp_pos2 = []
                     temp_y = []
-
-                    temp_input = temp_order[i * settings.big_num:(i + 1) * settings.big_num]
+                    temp_input = temp_order[i * settings.batch_size:(i + 1) * settings.batch_size]
                     for k in temp_input:
                         temp_word.append(train_word[k])
                         temp_pos1.append(train_pos1[k])
                         temp_pos2.append(train_pos2[k])
                         temp_y.append(train_y[k])
                     num = 0
-                    for single_word in temp_word:
+                    for single_word in temp_word: # temp_word是一个50句话的数组，single_word是一句话的wordid的向量
                         num += len(single_word)
 
-                    if num > 1500:
+                    if num > 1500: # 50个tuple下辖的句子数不能超过1500 ？？？
                         print('out of range')
                         continue
 
@@ -119,14 +125,17 @@ def main(_):
                     temp_pos2 = np.array(temp_pos2)
                     temp_y = np.array(temp_y)
 
-                    train_step(temp_word, temp_pos1, temp_pos2, temp_y, settings.big_num)
+                    # 每一批次喂入，训练一次
+                    train_step(temp_word, temp_pos1, temp_pos2, temp_y, settings.batch_size)
 
                     current_step = tf.train.global_step(sess, global_step)
-                    if current_step > 8000 and current_step % 100 == 0:
+                    print(current_step)
+                    if current_step > 1000 and current_step % 100 == 0:
                         print('saving model')
                         path = saver.save(sess, save_path + 'ATT_GRU_model', global_step=current_step)
                         tempstr = 'have saved model to ' + path
                         print(tempstr)
+                evaluation()
 
 
 if __name__ == "__main__":

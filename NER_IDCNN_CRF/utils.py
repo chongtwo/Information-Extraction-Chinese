@@ -2,7 +2,8 @@ import os
 import json
 import shutil
 import logging
-
+import datetime
+import codecs
 import tensorflow as tf
 from conlleval import return_report
 
@@ -13,7 +14,8 @@ eval_script = os.path.join(eval_path, "conlleval")
 
 
 def get_logger(log_file):
-    logger = logging.getLogger(log_file)
+    time = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+    logger = logging.getLogger(log_file+time)
     logger.setLevel(logging.DEBUG)
     fh = logging.FileHandler(log_file)
     fh.setLevel(logging.DEBUG)
@@ -55,7 +57,7 @@ def test_ner(results, path):
     Run perl script to evaluate model
     """
     output_file = os.path.join(path, "ner_predict.utf8")
-    with open(output_file, "w") as f:
+    with open(output_file, "w", encoding='utf8') as f:
         to_write = []
         for block in results:
             for line in block:
@@ -186,28 +188,74 @@ def create_model(session, Model_class, path, load_vec, config, id_to_char, logge
     return model
 
 
-def result_to_json(string, tags):
+def result_to_json(string, tags, tag_schema):
     item = {"string": string, "entities": []}
     entity_name = ""
     entity_start = 0
     idx = 0
-    for char, tag in zip(string, tags):
-        if tag[0] == "S":
-            item["entities"].append({"word": char, "start": idx, "end": idx+1, "type":tag[2:]})
-        elif tag[0] == "B":
-            entity_name += char
-            entity_start = idx
-        elif tag[0] == "I":
-            entity_name += char
-        elif tag[0] == "E":
-            entity_name += char
-            item["entities"].append({"word": entity_name, "start": entity_start, "end": idx + 1, "type": tag[2:]})
-            entity_name = ""
-        else:
-            entity_name = ""
-            entity_start = idx
-        idx += 1
+    if(tag_schema== "iob"):
+        last_tag = "O"
+        for char, tag in zip(string, tags):
+            if tag[0] == "B":
+                if last_tag[0] != "O":  # BI BI.../B BI...
+                    item["entities"].append(
+                        {"word": entity_name, "start": entity_start, "end": idx, "type": last_tag[2:]})
+                entity_name = char
+                entity_start = idx
+            elif tag[0] == "I":
+                entity_name += char
+            else: #tag[0] == "哦"
+                if last_tag != "O":
+                    item["entities"].append(
+                        {"word": entity_name, "start": entity_start, "end": idx, "type": last_tag[2:]})
+                    entity_name = ""
+                    entity_start = idx
+            idx += 1
+            last_tag = tag
+    elif(tag_schema == "iobes"):
+        for char, tag in zip(string, tags):
+            if tag[0] == "S":
+                item["entities"].append({"word": char, "start": idx, "end": idx+1, "type":tag[2:]})
+            elif tag[0] == "B":
+                entity_name += char
+                entity_start = idx
+            elif tag[0] == "I":
+                entity_name += char
+            elif tag[0] == "E":
+                entity_name += char
+                item["entities"].append({"word": entity_name, "start": entity_start, "end": idx + 1, "type": tag[2:]})
+                entity_name = ""
+            else:
+                entity_name = ""
+                entity_start = idx
+            idx += 1
+    else:
+        ValueError("未知的tag_schema")
     return item
+
+if __name__ == "__main__":
+    f_path = "F:\肺癌分期项目程序\标注数据\CT_SCHEMA2_BIO_2\CT_FIND_0003.bio"
+    filname = f_path.split("\\")[-1].replace(".bio",".json")
+    o_path = "F:/肺癌分期项目程序/ner_result/"+filname
+    with codecs.open(f_path, "r", encoding="utf8") as f:
+        with codecs.open(o_path, "w", encoding="utf8") as outf:
+            lines = f.readlines()
+            string = ""
+            tags=[]
+            result_arr = []
+            i = 0
+            for line in lines:
+                print(i)
+                i = i+1
+                if line != "\r\n" and line !="\n":
+                    string += line.split(" ")[0]
+                    tags.append(line.split(" ")[1].strip("\n"))
+                else:
+                    result = result_to_json(string, tags, "iob")
+                    result_arr.append(result)
+                    string=""
+                    tags=[]
+            json.dump(result_arr, outf, ensure_ascii=False)
 
 
 

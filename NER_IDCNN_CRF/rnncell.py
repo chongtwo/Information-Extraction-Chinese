@@ -92,6 +92,7 @@ class CoupledInputForgetGateLSTMCell(rnn_cell_impl.RNNCell):
                num_unit_shards=1, num_proj_shards=1,
                forget_bias=1.0, state_is_tuple=True,
                activation=math_ops.tanh, reuse=None):
+    # TODO
     """Initialize the parameters for an LSTM cell.
 
     Args:

@@ -190,7 +190,7 @@ def report(counts, out=None):
         out.write('%17s: ' % i)
         out.write('precision: %6.2f%%; ' % (100.*m.prec))
         out.write('recall: %6.2f%%; ' % (100.*m.rec))
-        out.write('FB1: %6.2f  %d\n' % (100.*m.fscore, c.t_found_guessed[i]))
+        out.write('FB1: %6.2f  Guess: %d  Truth: %d\n' % (100.*m.fscore, c.t_found_guessed[i], overall.fn+overall.tp))
 
 
 def report_notprint(counts, out=None):
@@ -222,7 +222,8 @@ def report_notprint(counts, out=None):
         line.append('%17s: ' % i)
         line.append('precision: %6.2f%%; ' % (100.*m.prec))
         line.append('recall: %6.2f%%; ' % (100.*m.rec))
-        line.append('FB1: %6.2f  %d\n' % (100.*m.fscore, c.t_found_guessed[i]))
+        # line.append('FB1: %6.2f  %d\n' % (100.*m.fscore, c.t_found_guessed[i]))
+        line.append('FB1: %6.2f  Guess: %d  Truth: %d\n' % (100.*m.fscore, c.t_found_guessed[i], overall.fn+overall.tp))
         final_report.append("".join(line))
     return final_report
 
@@ -289,7 +290,7 @@ def main(argv):
     if args.file is None:
         counts = evaluate(sys.stdin, args)
     else:
-        with open(args.file) as f:
+        with open(args.file, encoding='utf8') as f:
             counts = evaluate(f, args)
     report(counts)
 
